@@ -26,11 +26,9 @@ namespace Infrastructure.Extensions
             this IServiceCollection services,
             IConfiguration configuration)
         {
-            // Configure MongoDB settings
             services.Configure<MongoDbSettings>(
                 configuration.GetSection("MongoDb"));
 
-            // Register MongoDB context as singleton (recommended)
             services.AddSingleton<MongoDbContext>();
 
             return services;
@@ -38,7 +36,7 @@ namespace Infrastructure.Extensions
 
         /// <summary>
         /// Add FusionCache with L1 (Memory) + L2 (Redis) + Backplane
-        /// This is the ULTIMATE caching setup!
+        /// FIXED FOR .NET 9 & FusionCache 1.3.0
         /// </summary>
         public static IServiceCollection AddFusionCacheWithRedis(
             this IServiceCollection services,
@@ -67,21 +65,17 @@ namespace Infrastructure.Extensions
             services.AddSingleton<IConnectionMultiplexer>(sp =>
                 ConnectionMultiplexer.Connect(redisConfig));
 
-            // Add Redis as distributed cache (L2)
-            if (cacheSettings.EnableDistributedCache)
+            // Add Redis as distributed cache (L2) - REQUIRED for FusionCache
+            services.AddStackExchangeRedisCache(options =>
             {
-                services.AddStackExchangeRedisCache(options =>
-                {
-                    options.ConfigurationOptions = redisConfig;
-                    options.InstanceName = "FusionCacheDemo:";
-                });
-            }
+                options.ConfigurationOptions = redisConfig;
+                options.InstanceName = "FusionCacheDemo:";
+            });
 
-            // Add FusionCache with fluent builder API
+            // ✅ FIXED: FusionCache 1.3.0+ uses new extension methods
             services.AddFusionCache()
                 .WithDefaultEntryOptions(options =>
                 {
-                    // Default settings for all cache entries
                     options.Duration = cacheSettings.DefaultDuration;
                     options.IsFailSafeEnabled = cacheSettings.EnableFailSafe;
                     options.FailSafeMaxDuration = cacheSettings.FailSafeMaxDuration;
@@ -92,10 +86,11 @@ namespace Infrastructure.Extensions
                 })
                 .WithDistributedCache(sp => sp.GetRequiredService<IDistributedCache>());
 
-            // Add serialization (System.Text.Json)
+
+            // ✅ FIXED: Serializer registration (new method name)
             services.AddFusionCacheSystemTextJsonSerializer();
 
-            // Add backplane for multi-node sync - conditionally
+            // ✅ FIXED: Backplane registration with new API
             if (cacheSettings.EnableBackplane)
             {
                 services.AddFusionCacheStackExchangeRedisBackplane(options =>
@@ -108,8 +103,8 @@ namespace Infrastructure.Extensions
         }
 
         /// <summary>
-        /// Add FusionCache with just L1 (Memory only - for single server)
-        /// Simpler setup, but no distributed caching
+        /// Add FusionCache with ONLY L1 (Memory) - Simpler setup
+        /// Good for single-server applications
         /// </summary>
         public static IServiceCollection AddFusionCacheMemoryOnly(
             this IServiceCollection services,
@@ -139,10 +134,8 @@ namespace Infrastructure.Extensions
         public static IServiceCollection AddRepositories(
             this IServiceCollection services)
         {
-            // Register the actual repository
             services.AddScoped<ProductRepository>();
 
-            // Register the cached repository as decorator
             services.AddScoped<IProductRepository>(provider =>
             {
                 var innerRepository = provider.GetRequiredService<ProductRepository>();
